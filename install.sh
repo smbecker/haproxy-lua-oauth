@@ -1,5 +1,5 @@
 #!/bin/bash
-SOURCE_DIR=/usr/src
+SOURCE_DIR=$(pwd)
 DEST_BASE_DIR=""
 SYSTEMD_NAME=haproxy.service
 HAPROXY_VERSION=1.9.1
@@ -7,6 +7,7 @@ LUA_VERSION=5.3.5
 
 install_haproxy_var=false
 install_luaoauth_var=false
+install_luaoauth_deps_var=false
 rhel_based=false
 debian_based=false
 lua_installed=false
@@ -102,10 +103,12 @@ install_deb_lua() {
 }
 
 download_luaoauth() {
-    printf "\r[+] Downloading haproxy-lua-oauth\n"
-    cd $SOURCE_DIR
-    curl -sLO https://github.com/haproxytech/haproxy-lua-oauth/archive/master.zip
-    unzip -qo master.zip && rm master.zip
+    if [ ! -d "$SOURCE_DIR/lib" ]; then
+      printf "\r[+] Downloading haproxy-lua-oauth\n"
+      cd $SOURCE_DIR
+      curl -sLO https://github.com/haproxytech/haproxy-lua-oauth/archive/master.zip
+      unzip -qoj master.zip haproxy-lua-oauth-master/lib/* -d "$SOURCE_DIR/lib" && rm master.zip
+    fi
 }
 
 download_luaoauth_deps() {
@@ -128,11 +131,14 @@ install_luaoauth() {
     if [ ! -e $lua_dep_dir ]; then
         mkdir -p $lua_dep_dir;
     fi;
-    mv $SOURCE_DIR/haproxy-lua-oauth-master/lib/*.lua $lua_dep_dir
+    mv $SOURCE_DIR/lib/*.lua $lua_dep_dir
 }
 
 install_luaoauth_deps() {
     printf "\r[+] Installing haproxy-lua-oauth dependencies\n"
+    if [ ! -e $lua_dep_dir ]; then
+        mkdir -p $lua_dep_dir;
+    fi;
     cd $SOURCE_DIR
     cd luasocket/
     make clean all install-both LUAINC=/usr/include/lua5.3/ >/dev/null
@@ -140,7 +146,7 @@ install_luaoauth_deps() {
     cd luaossl/
     make install >/dev/null
     cd ..
-    mv json/json.lua $lua_dep_dir 
+    mv json/json.lua $lua_dep_dir
 }
 
 case $1 in
@@ -149,10 +155,15 @@ case $1 in
         ;;
     luaoauth)
         install_luaoauth_var=true
+        install_luaoauth_deps_var=true
+        ;;
+    deps)
+        install_luaoauth_deps_var=true
         ;;
     all)
         install_haproxy_var=true
         install_luaoauth_var=true
+        install_luaoauth_deps_var=true
         ;;
     *)
     print_help
@@ -176,7 +187,7 @@ if $install_haproxy_var; then
     lua_installed=true
 fi
 
-if $install_luaoauth_var; then
+if $install_luaoauth_deps_var; then
     # Install Lua JWT
     if ! $lua_installed; then
         if $rhel_based; then
@@ -189,7 +200,15 @@ if $install_luaoauth_var; then
             display_working $!
         done
     fi 
-    download_and_install_luaoauth=(download_luaoauth_deps install_luaoauth_deps download_luaoauth install_luaoauth)
+    download_and_install_deps=(download_luaoauth_deps install_luaoauth_deps)
+    for func in ${download_and_install_deps[*]}; do
+        $func &
+        display_working $!
+    done
+fi
+
+if $install_luaoauth_var; then
+    download_and_install_luaoauth=(download_luaoauth install_luaoauth)
     for func in ${download_and_install_luaoauth[*]}; do
         $func &
         display_working $!
